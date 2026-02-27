@@ -1,6 +1,7 @@
 import  express from 'express';
 import cors from 'cors';
 import admin from 'firebase-admin';
+import serviceAccount from './neilgarcia-e002a-firebase-adminsdk-fbsvc-1bdf5918d6.json' with { type: 'json' };
 
 const app = express();
 
@@ -9,76 +10,76 @@ app.use(cors({
 }));
 app.use(express.json());
 
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+    databaseURL: "https://neilgarcia-e002a-default-rtdb.europe-west1.firebasedatabase.app"
+});
+
 const port = 3080;
 app.listen(port,() => {
     console.log(`Servidor escuchando en http://localhost:${port}`);
 });
 
-app.get('/guason',(req, res) => {
-    const guason = {algo: "texto", numero: 21}
-    res.json(guason)
-});
-
 //INICI
 
 const db = admin.firestore();
-const bussines = db.collection('usuaris').doc('tupapa')
-const doc = await bussines.get();
-
-if (!doc.exists) {
-    console.log('no such document ');
-}else {
-    console.log('documento ', doc.data().usuari);
-}
 
 app.get('/bussines', async (req, res) => {
-    if (!doc.exists) {
-        return res.status(404).json({ mensaje: 'No existe' });
+    try {
+        const docRef = db.collection('usuaris').doc('tupapa');
+        const doc = await docRef.get();
+
+        if (!doc.exists) {
+            return res.status(404).json({ mensaje: 'No existe' });
+        }
+
+        res.json(doc.data());
+        console.log(docRef)
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
-    res.json(doc.data());
 });
 
-app.get('/usuari', async (req, res) => {
-    if (!doc.exists) {
-        return res.status(404).json({ mensaje: 'No existe' });
-    }
-    res.json(doc.data());
-});
+
+
+//es para agregar usuarios al firebase
 
 
 app.post('/usuaris', async (req, res) => {
 
-    const { usuari, contra } = req.body;
+    const { nom, contra } = req.body;
 
-    const nuevoPersona = {
-        nom: usuari,
+    const ref = db.collection('usuaris').doc(nom);
+    const doc = await ref.get();
+
+    if (doc.exists) {
+        return res.status(400).send('El usuario ya existe');
+    }
+
+    await ref.set({
+        nom: nom,
         contra: contra
-    };
+    });
 
-    await db.collection('usuaris').add(nuevoPersona);
-
-    res.send('OK');
+    res.status(200).json({ mensaje: 'Usuario creado correctamente' });
 });
 
 app.put('/usuaris/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { nom, contra } = req.body;
+    const { id } = req.params;
+    const { nom } = req.body;
 
-        const ref = db.collection('usuaris').doc(id);
-        const doc = await ref.get();
+    const oldRef = db.collection('usuaris').doc(id);
+    const doc = await oldRef.get();
 
-        if (!doc.exists) {
-            return res.status(404).json({ mensaje: 'No existe el personaje' });
-        }
-        await ref.update({
-            nom,
-            contra
-        });
-        res.json({ mensaje: 'Personaje actualizado correctamente' });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
+    if (!doc.exists) {
+        return res.status(404).send("No existe");
     }
+
+    await db.collection('usuaris').doc(nom).set(doc.data());
+    await oldRef.delete();
+
+    res.send("Cambiado");
 });
 
 
