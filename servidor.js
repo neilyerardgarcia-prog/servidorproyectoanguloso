@@ -1,7 +1,6 @@
 import  express from 'express';
 import cors from 'cors';
 import admin from 'firebase-admin';
-import serviceAccount from './neilgarcia-e002a-firebase-adminsdk-fbsvc-1bdf5918d6.json' with { type: 'json' };
 
 const app = express();
 
@@ -9,11 +8,6 @@ app.use(cors({
     origin: 'http://localhost:4200'
 }));
 app.use(express.json());
-
-admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-    databaseURL: "https://neilgarcia-e002a-default-rtdb.europe-west1.firebasedatabase.app"
-});
 
 const port = 3080;
 app.listen(port,() => {
@@ -48,7 +42,7 @@ app.get('/bussines', async (req, res) => {
 
 app.post('/usuaris', async (req, res) => {
 
-    const { nom, contra } = req.body;
+    const { nom, contra, corr } = req.body;
 
     const ref = db.collection('usuaris').doc(nom);
     const doc = await ref.get();
@@ -59,7 +53,8 @@ app.post('/usuaris', async (req, res) => {
 
     await ref.set({
         nom: nom,
-        contra: contra
+        contra: contra,
+        corr: corr
     });
 
     res.status(200).json({ mensaje: 'Usuario creado correctamente' });
@@ -82,6 +77,7 @@ app.put('/usuaris/:id', async (req, res) => {
     res.send("Cambiado");
 });
 
+//mostrar usuarios
 
 app.get('/usuaris', async (req, res) => {
     try {
@@ -102,7 +98,3 @@ app.get('/usuaris', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
-
-
-
-
