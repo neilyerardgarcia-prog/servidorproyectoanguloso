@@ -9,6 +9,8 @@ app.use(cors({
 }));
 app.use(express.json());
 
+
+
 const port = 3080;
 app.listen(port,() => {
     console.log(`Servidor escuchando en http://localhost:${port}`);
@@ -96,5 +98,60 @@ app.get('/usuaris', async (req, res) => {
 
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+
+import nodemailer from 'nodemailer';
+
+// CONFIGURACIÓN DEL TRANSPORTER (Gmail ejemplo)
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: 'luis.pelaez@institutvidreres.cat',
+        pass: 'wrse qpbt btno zxcx'
+    }
+});
+
+// Endpoint reset password
+app.post('/api/reset-password', async (req, res) => {
+    const { nombre, email } = req.body;
+
+    if (!nombre || !email) {
+        return res.status(400).json({ msg: 'Datos obligatorios' });
+    }
+
+    try {
+        const ref = db.collection('usuaris').doc(nombre);
+        const doc = await ref.get();
+
+        if (!doc.exists) {
+            return res.status(404).json({ msg: 'Usuario no encontrado' });
+        }
+
+        const userData = doc.data();
+
+        if (userData.corr !== email) {
+            return res.status(400).json({ msg: 'Email incorrecto' });
+        }
+
+        //  Generar nueva contraseña aleatoria
+        const nuevaPassword = Math.random().toString(36).slice(-8);
+
+        // Actualizar en Firebase
+        await ref.update({ contra: nuevaPassword });
+
+        // Enviar correo
+        await transporter.sendMail({
+            from: '"Tienda Virtual" <TU_CORREO@gmail.com>',
+            to: email,
+            subject: 'Restablecimiento de contraseña',
+            text: `Tu nueva contraseña es: ${nuevaPassword}`
+        });
+
+        res.json({ msg: 'Nueva contraseña enviada al correo' });
+
+    } catch (error) {
+        res.status(500).json({ msg: 'Error del servidor' });
     }
 });
