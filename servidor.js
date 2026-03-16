@@ -1,6 +1,7 @@
 import  express from 'express';
 import cors from 'cors';
 import admin from 'firebase-admin';
+import serviceAccount from './neilgarcia-e002a-firebase-adminsdk-fbsvc-1bdf5918d6.json' with { type: 'json' };
 
 const app = express();
 
@@ -8,8 +9,10 @@ app.use(cors({
     origin: 'http://localhost:4200'
 }));
 app.use(express.json());
-
-
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+    databaseURL: "https://neilgarcia-e002a-default-rtdb.europe-west1.firebasedatabase.app"
+});
 
 const port = 3080;
 app.listen(port,() => {
