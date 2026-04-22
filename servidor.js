@@ -1,6 +1,7 @@
-import  express from 'express';
+import express from 'express';
 import cors from 'cors';
 import admin from 'firebase-admin';
+import axios from 'axios';
 import serviceAccount from './neilgarcia-e002a-firebase-adminsdk-fbsvc-1bdf5918d6.json' with { type: 'json' };
 
 const app = express();
@@ -8,153 +9,123 @@ const app = express();
 app.use(cors({
     origin: 'http://localhost:4200'
 }));
+
 app.use(express.json());
+
+// 🔹 Firebase
 admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-    databaseURL: "https://neilgarcia-e002a-default-rtdb.europe-west1.firebasedatabase.app"
+    credential: admin.credential.cert(serviceAccount)
 });
-
-const port = 3080;
-app.listen(port,() => {
-    console.log(`Servidor escuchando en http://localhost:${port}`);
-});
-
-//INICI
 
 const db = admin.firestore();
 
-app.get('/bussines', async (req, res) => {
-    try {
-        const docRef = db.collection('usuaris').doc('tupapa');
-        const doc = await docRef.get();
-
-        if (!doc.exists) {
-            return res.status(404).json({ mensaje: 'No existe' });
-        }
-
-        res.json(doc.data());
-        console.log(docRef)
-
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+app.listen(3080, () => {
+    console.log('🔥 Servidor Firebase en http://localhost:3080');
 });
 
-
-
-//es para agregar usuarios al firebase
-
+// 🔹 TEST para ver si se cae
+app.get('/', (req, res) => {
+    res.send('Servidor OK');
+});
 
 app.post('/usuaris', async (req, res) => {
+    console.log("📥 BODY:", req.body);
 
     const { nom, contra, corr } = req.body;
 
-    const ref = db.collection('usuaris').doc(nom);
-    const doc = await ref.get();
-
-    if (doc.exists) {
-        return res.status(400).send('El usuario ya existe');
+    if (!nom || !contra || !corr) {
+        return res.status(400).json({ error: 'Faltan datos' });
     }
 
-    await ref.set({
-        nom: nom,
-        contra: contra,
-        corr: corr
-    });
-
-    res.status(200).json({ mensaje: 'Usuario creado correctamente' });
-});
-
-app.put('/usuaris/:id', async (req, res) => {
-    const { id } = req.params;
-    const { nom } = req.body;
-
-    const oldRef = db.collection('usuaris').doc(id);
-    const doc = await oldRef.get();
-
-    if (!doc.exists) {
-        return res.status(404).send("No existe");
-    }
-
-    await db.collection('usuaris').doc(nom).set(doc.data());
-    await oldRef.delete();
-
-    res.send("Cambiado");
-});
-
-//mostrar usuarios
-
-app.get('/usuaris', async (req, res) => {
     try {
-        const snapshot = await db.collection('usuaris').get();
+        const snapshot = await db.collection('usuaris')
+            .where('corr', '==', corr)
+            .get();
 
-        if (snapshot.empty) {
-            return res.status(404).json({ mensaje: 'No hay usuarios' });
+        if (!snapshot.empty) {
+            return res.status(400).json({ error: 'Email ya existe' });
         }
 
-        const usuaris = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-        }));
+        const ref = await db.collection('usuaris').add({
+            nom,
+            contra,
+            corr
+        });
 
-        res.json(usuaris);
+        console.log("✅ Firebase creado:", ref.id);
+
+        let mysqlUser = null;
+
+        try {
+            const response = await axios.post('http://localhost:3000/usuarios', {
+                firebase_uid: ref.id,
+                username: nom,
+                email: corr,
+                password: contra // 🔥 SOLUCIÓN
+            });
+
+            console.log("✅ MYSQL OK:", response.data);
+
+            mysqlUser = response.data;
+
+        } catch (mysqlError) {
+            console.error("❌ MYSQL ERROR:");
+            console.error(mysqlError.response?.data || mysqlError.message);
+        }
+
+        res.json({
+            firebaseId: ref.id,
+            usuarioId: mysqlUser?.id || null
+        });
 
     } catch (error) {
+        console.error("💥 ERROR GENERAL:", error);
         res.status(500).json({ error: error.message });
     }
 });
 
-
-import nodemailer from 'nodemailer';
-
-// CONFIGURACIÓN DEL TRANSPORTER (Gmail ejemplo)
-const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-        user: 'luis.pelaez@institutvidreres.cat',
-        pass: 'wrse qpbt btno zxcx'
-    }
-});
-
-// Endpoint reset password
-app.post('/api/reset-password', async (req, res) => {
-    const { nombre, email } = req.body;
-
-    if (!nombre || !email) {
-        return res.status(400).json({ msg: 'Datos obligatorios' });
-    }
+// 🔹 LOGIN
+app.post('/login', async (req, res) => {
+    const { nom, contra } = req.body;
 
     try {
-        const ref = db.collection('usuaris').doc(nombre);
-        const doc = await ref.get();
+        const snapshot = await db.collection('usuaris')
+            .where('nom', '==', nom)
+            .get();
 
-        if (!doc.exists) {
-            return res.status(404).json({ msg: 'Usuario no encontrado' });
+        if (snapshot.empty) {
+            return res.status(401).json({ error: 'Usuario no existe' });
         }
 
-        const userData = doc.data();
+        const userDoc = snapshot.docs[0];
+        const userData = userDoc.data();
 
-        if (userData.corr !== email) {
-            return res.status(400).json({ msg: 'Email incorrecto' });
+        if (userData.contra !== contra) {
+            return res.status(401).json({ error: 'Contraseña incorrecta' });
         }
 
-        //  Generar nueva contraseña aleatoria
-        const nuevaPassword = Math.random().toString(36).slice(-8);
+        // 🔥 BUSCAR ID MYSQL
+        let usuarioId = null;
 
-        // Actualizar en Firebase
-        await ref.update({ contra: nuevaPassword });
+        try {
+            const response = await axios.get(
+                `http://localhost:3000/usuarios/firebase/${userDoc.id}`
+            );
+            usuarioId = response.data.id;
+        } catch (err) {
+            console.error("❌ ERROR buscando en MySQL");
+        }
 
-        // Enviar correo
-        await transporter.sendMail({
-            from: '"Tienda Virtual" <TU_CORREO@gmail.com>',
-            to: email,
-            subject: 'Restablecimiento de contraseña',
-            text: `Tu nueva contraseña es: ${nuevaPassword}`
+        res.json({
+            firebaseId: userDoc.id,
+            usuarioId,
+            ...userData
         });
+        console.log("🔥 Firebase ID:", userDoc.id);
 
-        res.json({ msg: 'Nueva contraseña enviada al correo' });
 
     } catch (error) {
-        res.status(500).json({ msg: 'Error del servidor' });
+        console.error(error);
+        res.status(500).json({ error: error.message });
     }
 });
